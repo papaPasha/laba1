@@ -18,7 +18,7 @@ int main(int argc, char** argv)
 		return;
 	}
 
-	if (!CreateProcess("C:\\Users\\brobu\\source\\repos\\Lab1_Win_Task1\\x64\\Debug\\Lab1_Win_Task1.exe", NULL, NULL, NULL, FALSE, 0, NULL, NULL, &startupinfo, &processinformation))
+	if (!CreateProcess("C:\\Users\\brobu\\source\\repos\\second.c\\x64\\Debug\\second.c.exe", NULL, NULL, NULL, FALSE, 0, NULL, NULL, &startupinfo, &processinformation))
 	{
 		printf("CreateProcess failed (%d).\n", GetLastError());
 	}
