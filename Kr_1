@@ -1,1 +1,87 @@
+#include <iostream>
+#include <vector>
+#include <thread>
+#include <mutex>
+#include <chrono>
+#include <random>
+using namespace std;
+mutex ioMutex;
+mutex balanceMutex;
+double accountBalance = 0.0;
 
+const int operationDelayMean = 50;  
+const int operationDelayDeviation = 25;  
+const int maxRetryAttempts = 3;
+
+void updateBalanceWithDelay(const vector<double>& scenario, int threadId) {
+    for (double change : scenario) {
+        int retryAttempts = 0;
+
+        while (retryAttempts < maxRetryAttempts) {
+            unique_lock<mutex> lock(balanceMutex);
+
+            if (accountBalance + change >= 0) {
+                random_device rd;
+                mt19937 gen(rd());
+                normal_distribution<> delayDistribution(operationDelayMean, operationDelayDeviation);
+                int delay = max(0, static_cast<int>(delayDistribution(gen)));
+
+                this_thread::sleep_for(chrono::milliseconds(delay));
+
+                double oldBalance = accountBalance;
+                accountBalance += change;
+                double newBalance = accountBalance;
+
+                lock.unlock();
+
+                {
+                    unique_lock<mutex> ioLock(ioMutex);
+                    cout << "Thread " << threadId << ": было=" << oldBalance << ", операция " << (change >= 0 ? "+" : "-") << std::abs(change) << ", стало=" << newBalance << std::endl;
+                }
+
+                break; 
+            }
+            else {
+                lock.unlock();
+
+                {
+                    unique_lock<mutex> ioLock(ioMutex);
+                    cout << "Thread " << threadId << ": Операция " << (change >= 0 ? "+" : "-") << std::abs(change) << " не выполнена (недостаточно средств). Попытка " << retryAttempts + 1 << "/" << maxRetryAttempts << std::endl;
+                }
+
+                ++retryAttempts;
+                this_thread::sleep_for(chrono::milliseconds(100)); 
+            }
+        }
+    }
+}
+
+double getBalance() {
+    unique_lock<mutex> lock(balanceMutex);
+    return accountBalance;
+}
+
+int main() {
+    setlocale(LC_ALL, "Russian");
+    const int numThreads = 3;
+
+    vector<vector<double>> scenarios = {
+        {100, -50, 30, -20},
+        {-10, 20, -15, 25},
+        {50, -40, 10, -30}
+    };
+
+    vector<thread> threads;
+    for (int i = 0; i < numThreads; ++i) {
+        threads.emplace_back(updateBalanceWithDelay, ref(scenarios[i]), i + 1);
+    }
+
+    for (auto& thread : threads) {
+        thread.join();
+    }
+
+    unique_lock<mutex> lock(ioMutex);
+    cout << "Баланс: " << getBalance() << endl;
+
+    return 0;
+}
