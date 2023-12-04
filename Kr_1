@@ -2,86 +2,113 @@
 #include <vector>
 #include <thread>
 #include <mutex>
-#include <chrono>
 #include <random>
+#include <chrono>
+
 using namespace std;
-mutex ioMutex;
-mutex balanceMutex;
+
+// Мьютексы для синхронизации доступа к общим данным
+mutex ioMutex;      // для безопасного вывода в консоль
+mutex balanceMutex; // для синхронизации доступа к балансу счета
+
+// Баланс счета
 double accountBalance = 0.0;
 
-const int operationDelayMean = 50;  
-const int operationDelayDeviation = 25;  
+// Константы для управления задержкой операций и количеством попыток повтора
+const int operationDelayMean = 50;
+const int operationDelayDeviation = 25;
 const int maxRetryAttempts = 3;
 
+// Функция для обновления баланса с учетом задержек
 void updateBalanceWithDelay(const vector<double>& scenario, int threadId) {
     for (double change : scenario) {
         int retryAttempts = 0;
 
         while (retryAttempts < maxRetryAttempts) {
+            // Блокировка мьютекса для безопасного доступа к балансу
             unique_lock<mutex> lock(balanceMutex);
 
             if (accountBalance + change >= 0) {
+                // Генерация случайной задержки
                 random_device rd;
                 mt19937 gen(rd());
                 normal_distribution<> delayDistribution(operationDelayMean, operationDelayDeviation);
                 int delay = max(0, static_cast<int>(delayDistribution(gen)));
 
+                // Задержка выполнения потока
                 this_thread::sleep_for(chrono::milliseconds(delay));
 
+                // Обновление баланса
                 double oldBalance = accountBalance;
                 accountBalance += change;
                 double newBalance = accountBalance;
 
+                // Разблокировка мьютекса
                 lock.unlock();
 
+                // Вывод информации в консоль с использованием другого мьютекса
                 {
                     unique_lock<mutex> ioLock(ioMutex);
                     cout << "Thread " << threadId << ": было=" << oldBalance << ", операция " << (change >= 0 ? "+" : "-") << std::abs(change) << ", стало=" << newBalance << std::endl;
                 }
 
-                break; 
+                break; // Выход из цикла, если операция успешно выполнена
             }
             else {
+                // Разблокировка мьютекса
                 lock.unlock();
 
+                // Вывод информации о неудачной операции в консоль
                 {
                     unique_lock<mutex> ioLock(ioMutex);
                     cout << "Thread " << threadId << ": Операция " << (change >= 0 ? "+" : "-") << std::abs(change) << " не выполнена (недостаточно средств). Попытка " << retryAttempts + 1 << "/" << maxRetryAttempts << std::endl;
                 }
 
+                // Увеличение счетчика попыток и задержка перед следующей попыткой
                 ++retryAttempts;
-                this_thread::sleep_for(chrono::milliseconds(100)); 
+                this_thread::sleep_for(chrono::milliseconds(100));
             }
         }
     }
 }
 
+// Функция для получения текущего баланса счета
 double getBalance() {
     unique_lock<mutex> lock(balanceMutex);
     return accountBalance;
 }
 
 int main() {
+    // Установка локали для вывода текста на русском языке
     setlocale(LC_ALL, "Russian");
+
+    // Количество потоков
     const int numThreads = 3;
 
+    // Вектор сценариев изменения баланса для каждого потока
     vector<vector<double>> scenarios = {
         {100, -50, 30, -20},
         {-10, 20, -15, 25},
         {50, -40, 10, -30}
     };
 
+    // Вектор потоков
     vector<thread> threads;
+
+    // Создание и запуск потоков
     for (int i = 0; i < numThreads; ++i) {
         threads.emplace_back(updateBalanceWithDelay, ref(scenarios[i]), i + 1);
     }
 
+    // Ожидание завершения всех потоков
     for (auto& thread : threads) {
         thread.join();
     }
 
+    // Блокировка мьютекса для безопасного вывода в консоль
     unique_lock<mutex> lock(ioMutex);
     cout << "Баланс: " << getBalance() << endl;
 
     return 0;
 }
+
